@@ -23,7 +23,7 @@ ALLOWED_HOSTS = os.environ.get(
 ).split(",")
 
 CSRF_TRUSTED_ORIGINS = [
-    os.environ.get("CSRF_TRUSTED_ORIGINS", "https://ricepredictiontest.onrender.com")
+    os.environ.get("CSRF_TRUSTED_ORIGINS", "ricepredictiontest.onrender.com")
 ]
 
 # -----------------------------------------------------------
@@ -140,7 +140,7 @@ RENDER = os.environ.get('RENDER', False)
 if RENDER:
     DEBUG = False
     ALLOWED_HOSTS = ['ricepredictiontest.onrender.com']
-    CSRF_TRUSTED_ORIGINS = ['https://ricepredictiontest.onrender.com']
+    CSRF_TRUSTED_ORIGINS = ['ricepredictiontest.onrender.com']
     SECURE_SSL_REDIRECT = False  # Let Render handle HTTPS redirection
     DATABASES = {
         'default': dj_database_url.config(
