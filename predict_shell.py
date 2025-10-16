@@ -1,4 +1,8 @@
-import os, warnings, traceback
+import os
+import sys
+import warnings
+import traceback
+import argparse
 import numpy as np
 from PIL import Image
 import tensorflow as tf
@@ -9,12 +13,15 @@ from tensorflow.keras.regularizers import l2
 from tensorflow.keras.applications.vgg16 import preprocess_input as vgg_preprocess
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input as mobilenet_preprocess
 from xgboost import XGBClassifier
-from django.shortcuts import render
-from django.http import JsonResponse, HttpResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.cache import never_cache
-from django.conf import settings
-from .models import RiceInfo, RiceModel
+
+# Add Django project to path
+sys.path.insert(0, os.path.dirname(__file__))
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'rice_prediction.settings')
+
+import django
+django.setup()
+
+from prediction.models import RiceInfo, RiceModel
 
 # -----------------------------
 # Strategy (GPU/CPU)
@@ -35,9 +42,9 @@ print("Replicas:", strategy.num_replicas_in_sync)
 # Config
 # -----------------------------
 IMAGE_SIZE = (224, 224)
-VGG16_PATH = os.path.join(settings.BASE_DIR, 'models', 'best_VGG16_stage2.weights.h5')
-MOBILENET_PATH = os.path.join(settings.BASE_DIR, 'models', 'MobileNetV2_rice62_final.weights.h5')
-META_MODEL_PATH = os.path.join(settings.BASE_DIR, 'models', 'xgb_meta_model.json')
+VGG16_PATH = os.path.join('models', 'best_VGG16_stage2.weights.h5')
+MOBILENET_PATH = os.path.join('models', 'MobileNetV2_rice62_final.weights.h5')
+META_MODEL_PATH = os.path.join('models', 'xgb_meta_model.json')
 
 # Load classes and model from DB
 def load_classes_and_model():
@@ -163,96 +170,59 @@ def extract_features(img_array, model, preprocess_func):
     feat = model.predict(img_array, verbose=0)
     return feat.flatten()
 
-# -----------------------------
-# Prediction View
-# -----------------------------
-@csrf_exempt
-@never_cache
-def predict(request):
+def predict_image(image_path, model_type='vgg'):
     warnings.filterwarnings("ignore", category=UserWarning)
 
-    if request.method == "POST":
-        try:
-            image_file = request.FILES.get("rice_image")
-            if not image_file:
-                return JsonResponse({"error": "No image provided"}, status=400)
-
-            # Preprocess
-            image = Image.open(image_file).convert("RGB")
-
-            # Save the uploaded image to fixed location
-            path = os.path.join(settings.MEDIA_ROOT, 'predictions', 'current.jpg')
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            image.save(path)
-
-            image = image.resize(IMAGE_SIZE)
-            image_array = np.expand_dims(np.array(image, dtype=np.float32), axis=0)
-
-            model_type = request.POST.get('model_type', 'vgg')
-
-            if model_type == 'vgg':
-                # Original VGG16 prediction
-                image_array_vgg = image_array / 255.0
-                preds = model.predict(image_array_vgg, verbose=0)
-                idx = int(np.argmax(preds[0]))
-                predicted_class = RICE_CLASSES[idx]
-                confidence = float(np.max(preds[0]) * 100)
-            elif model_type == 'ensemble':
-                # Ensemble prediction
-                feat_vgg = extract_features(image_array.copy(), vgg_extractor, vgg_preprocess)
-                feat_mobile = extract_features(image_array.copy(), mobilenet_extractor, mobilenet_preprocess)
-                stacked_feat = np.hstack([feat_vgg, feat_mobile]).reshape(1, -1)
-                pred_index = xgb_meta.predict(stacked_feat)[0]
-                pred_prob = xgb_meta.predict_proba(stacked_feat).max()
-                predicted_class = RICE_CLASSES[pred_index]
-                confidence = float(pred_prob * 100)
-            else:
-                return JsonResponse({"error": "Invalid model_type. Use 'vgg' or 'ensemble'"}, status=400)
-
-            rice_info_obj = RiceInfo.objects.filter(variety_name=predicted_class).first()
-            rice_info = rice_info_obj.info if rice_info_obj else "No info available."
-
-            # Close the image
-            image.close()
-
-            # Delete the uploaded image file if it's a temporary file
-            if hasattr(image_file, 'temporary_file_path'):
-                try:
-                    os.remove(image_file.temporary_file_path())
-                except OSError:
-                    pass  # Ignore if deletion fails
-
-            return JsonResponse({
-                "predicted_variety": predicted_class,
-                "confidence": confidence,
-                "rice_info": rice_info,
-                "model_type": model_type,
-                "message": f"Predicted Rice Variety: {predicted_class} ({confidence:.2f}% confidence)"
-            })
-
-        except Exception as e:
-            traceback.print_exc()
-            return JsonResponse({"error": str(e)}, status=500)
-
-    return render(request, "prediction/predict.html")
-
-def home(request):
-    return render(request, "prediction/home.html")
-
-# New endpoint to get active model
-def get_model(request):
-    active_model = RiceModel.objects.filter(is_active=True).first()
-    if not active_model or not active_model.tflite_file or not os.path.exists(active_model.tflite_file.path):
-        return JsonResponse({"error": "No active model available"}, status=404)
     try:
-        with open(active_model.tflite_file.path, 'rb') as f:
-            response = HttpResponse(f.read(), content_type='application/octet-stream')
-            response['Content-Disposition'] = f'attachment; filename="{active_model.name}.tflite"'
-            return response
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
+        if not os.path.exists(image_path):
+            print(f"Error: Image file '{image_path}' not found.")
+            return
 
-# New endpoint to get rice info
-def get_rice_info(request):
-    rice_infos = list(RiceInfo.objects.values('variety_name', 'info', 'updated_at'))
-    return JsonResponse({"rice_infos": rice_infos})
+        # Preprocess
+        image = Image.open(image_path).convert("RGB")
+        image = image.resize(IMAGE_SIZE)
+        image_array = np.expand_dims(np.array(image, dtype=np.float32), axis=0)
+
+        if model_type == 'vgg':
+            # Original VGG16 prediction
+            image_array_vgg = image_array / 255.0
+            preds = model.predict(image_array_vgg, verbose=0)
+            idx = int(np.argmax(preds[0]))
+            predicted_class = RICE_CLASSES[idx]
+            confidence = float(np.max(preds[0]) * 100)
+        elif model_type == 'ensemble':
+            # Ensemble prediction
+            feat_vgg = extract_features(image_array.copy(), vgg_extractor, vgg_preprocess)
+            feat_mobile = extract_features(image_array.copy(), mobilenet_extractor, mobilenet_preprocess)
+            stacked_feat = np.hstack([feat_vgg, feat_mobile]).reshape(1, -1)
+            pred_index = xgb_meta.predict(stacked_feat)[0]
+            pred_prob = xgb_meta.predict_proba(stacked_feat).max()
+            predicted_class = RICE_CLASSES[pred_index]
+            confidence = float(pred_prob * 100)
+        else:
+            print("Error: Invalid model_type. Use 'vgg' or 'ensemble'")
+            return
+
+        rice_info_obj = RiceInfo.objects.filter(variety_name=predicted_class).first()
+        rice_info = rice_info_obj.info if rice_info_obj else "No info available."
+
+        # Close the image
+        image.close()
+
+        print(f"Predicted Rice Variety: {predicted_class}")
+        print(f"Confidence: {confidence:.2f}%")
+        print(f"Model Type: {model_type}")
+        print(f"Rice Info: {rice_info}")
+
+    except Exception as e:
+        traceback.print_exc()
+        print(f"Error during prediction: {str(e)}")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Predict rice variety from image using shell.")
+    parser.add_argument("image_path", help="Path to the rice image file")
+    parser.add_argument("--model_type", choices=['vgg', 'ensemble'], default='vgg', help="Model type to use for prediction (default: vgg)")
+
+    args = parser.parse_args()
+
+    predict_image(args.image_path, args.model_type)

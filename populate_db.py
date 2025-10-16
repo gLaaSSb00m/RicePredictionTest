@@ -8,7 +8,7 @@ django.setup()
 from prediction.models import RiceInfo, RiceModel
 
 # List of rice varieties provided by user
-rice_varieties = [
+rice_varieties = sorted([
     "10_Lal_Aush",
     "11_Jirashail",
     "12_Gutisharna",
@@ -71,29 +71,28 @@ rice_varieties = [
     "7_BR29",
     "8_Paijam",
     "9_Bashful"
-]
+])
 
 def populate_rice_info():
-    for variety in rice_varieties:
-        # Extract variety name by splitting on '_' and taking the part after the first '_'
-        parts = variety.split('_', 1)
-        if len(parts) > 1:
-            variety_name = parts[1]
-        else:
-            variety_name = variety
+    # Delete all existing RiceInfo entries
+    RiceInfo.objects.all().delete()
+    print("Deleted all existing rice varieties.")
 
-        # Create or update RiceInfo entry
-        RiceInfo.objects.get_or_create(
+    for variety in rice_varieties:
+        # Use the full variety name as is
+        variety_name = variety
+
+        # Create new RiceInfo entry
+        RiceInfo.objects.create(
             variety_name=variety_name,
-            defaults={'info': f"Information about {variety_name} rice variety."}
+            info=f"Information about {variety_name} rice variety."
         )
     print(f"Populated {len(rice_varieties)} rice varieties into RiceInfo.")
 
 def populate_rice_model():
-    # Add VGG16 model entry
-    RiceModel.objects.get_or_create(
+    # Update or create VGG16 model entry
+    vgg_model, created = RiceModel.objects.get_or_create(
         name="VGG16 Model",
-        model_type='vgg',
         defaults={
             'is_active': True,
             'model_file': None,
@@ -101,10 +100,9 @@ def populate_rice_model():
         }
     )
 
-    # Add Ensemble model entry
-    RiceModel.objects.get_or_create(
+    # Update or create Ensemble model entry
+    ensemble_model, created = RiceModel.objects.get_or_create(
         name="Ensemble Model",
-        model_type='ensemble',
         defaults={
             'is_active': False,
             'vgg_weights_file': None,
@@ -112,7 +110,8 @@ def populate_rice_model():
             'xgb_model_file': None
         }
     )
-    print("Added VGG16 and Ensemble model entries.")
+
+    print("Updated VGG16 and Ensemble model entries.")
 
 if __name__ == "__main__":
     populate_rice_info()
