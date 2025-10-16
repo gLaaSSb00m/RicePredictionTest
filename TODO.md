@@ -1,4 +1,4 @@
 - [x] Set DEBUG=False for RENDER in settings.py
-- [ ] Implement lazy loading for TensorFlow models in views.py
-- [ ] Adjust gunicorn timeout in Procfile if needed
-- [ ] Test locally and redeploy on Render
+- [x] Implement lazy loading for TensorFlow models in views.py
+- [x] Adjust gunicorn timeout in Procfile if needed
+- [x] Test locally and redeploy on Render

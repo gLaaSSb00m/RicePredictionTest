@@ -15,21 +15,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.cache import never_cache
 from django.conf import settings
 from .models import RiceInfo, RiceModel
-
-# -----------------------------
-# Strategy (GPU/CPU)
-# -----------------------------
-def get_strategy():
-    gpus = tf.config.list_physical_devices("GPU")
-    if gpus:
-        strat = tf.distribute.MirroredStrategy()
-        print(f"✅ Using MirroredStrategy on {len(gpus)} GPU(s).")
-        return strat
-    print("✅ Using default strategy (CPU).")
-    return tf.distribute.get_strategy()
-
-strategy = get_strategy()
-print("Replicas:", strategy.num_replicas_in_sync)
+import threading
 
 # -----------------------------
 # Config
@@ -39,123 +25,159 @@ VGG16_PATH = os.path.join(settings.BASE_DIR, 'models', 'best_VGG16_stage2.weight
 MOBILENET_PATH = os.path.join(settings.BASE_DIR, 'models', 'MobileNetV2_rice62_final.weights.h5')
 META_MODEL_PATH = os.path.join(settings.BASE_DIR, 'models', 'xgb_meta_model.json')
 
-# Load classes and model from DB
-def load_classes_and_model():
-    try:
-        rice_classes = list(RiceInfo.objects.values_list('variety_name', flat=True))
-    except:
-        rice_classes = []
-    try:
-        active_vgg_model = RiceModel.objects.filter(is_active=True, name='VGG16 Model').first()
-    except:
-        active_vgg_model = None
-    try:
-        active_ensemble_model = RiceModel.objects.filter(is_active=True, name='Ensemble Model').first()
-    except:
-        active_ensemble_model = None
-    return rice_classes, active_vgg_model, active_ensemble_model
-
-RICE_CLASSES, ACTIVE_VGG_MODEL, ACTIVE_ENSEMBLE_MODEL = load_classes_and_model()
+# Global variables for lazy loading
+_models_loaded = False
+_lock = threading.Lock()
+RICE_CLASSES = []
+ACTIVE_VGG_MODEL = None
+ACTIVE_ENSEMBLE_MODEL = None
+xgb_meta = None
+model = None
+vgg_extractor = None
+mobilenet_extractor = None
+strategy = None
 
 # -----------------------------
-# Load XGBoost meta-model
+# Lazy loading function
 # -----------------------------
-xgb_meta = XGBClassifier()
-xgb_meta.load_model(META_MODEL_PATH)
+def load_models():
+    global _models_loaded, RICE_CLASSES, ACTIVE_VGG_MODEL, ACTIVE_ENSEMBLE_MODEL, xgb_meta, model, vgg_extractor, mobilenet_extractor, strategy
+    if _models_loaded:
+        return
+    with _lock:
+        if _models_loaded:
+            return
+        print("🔄 Loading models...")
 
-# -----------------------------
-# Build + Load models
-# -----------------------------
-with strategy.scope():
-    def build_model(num_classes, l2_weight=1e-4, dropout_rate=0.3):
-        base_model = VGG16(include_top=False, input_shape=IMAGE_SIZE + (3,), weights="imagenet")
-        x = base_model.output
-        x = GlobalAveragePooling2D(name="gap")(x)
-        x = Dropout(dropout_rate, name="dropout")(x)
-        x = Dense(256, activation="relu", kernel_regularizer=l2(l2_weight), name="dense_256")(x)
-        x = BatchNormalization(name="bn")(x)
-        outputs = Dense(num_classes, activation="softmax", dtype="float32", name="pred")(x)
-        return keras.Model(inputs=base_model.input, outputs=outputs, name="VGG16_rice62")
+        # Strategy (GPU/CPU)
+        def get_strategy():
+            gpus = tf.config.list_physical_devices("GPU")
+            if gpus:
+                strat = tf.distribute.MirroredStrategy()
+                print(f"✅ Using MirroredStrategy on {len(gpus)} GPU(s).")
+                return strat
+            print("✅ Using default strategy (CPU).")
+            return tf.distribute.get_strategy()
 
-    def build_vgg16_feature_extractor():
-        base = VGG16(weights=None, include_top=False, input_shape=(224,224,3))
-        x = GlobalAveragePooling2D()(base.output)
-        model = keras.Model(inputs=base.input, outputs=x)
-        model.load_weights(VGG16_PATH)
-        return model
+        strategy = get_strategy()
+        print("Replicas:", strategy.num_replicas_in_sync)
 
-    def build_mobilenetv2_feature_extractor():
-        base = MobileNetV2(weights=None, include_top=False, input_shape=(224,224,3))
-        x = GlobalAveragePooling2D()(base.output)
-        model = keras.Model(inputs=base.input, outputs=x)
-        model.load_weights(MOBILENET_PATH)
-        return model
-
-    model = build_model(len(RICE_CLASSES))
-    loss = keras.losses.CategoricalCrossentropy(label_smoothing=0.05)
-    model.compile(optimizer="adam", loss=loss, metrics=["accuracy"])
-
-    vgg_extractor = build_vgg16_feature_extractor()
-    mobilenet_extractor = build_mobilenetv2_feature_extractor()
-
-    if ACTIVE_VGG_MODEL and ACTIVE_VGG_MODEL.is_active:
-        if ACTIVE_VGG_MODEL.model_file and os.path.exists(ACTIVE_VGG_MODEL.model_file.path):
+        # Load classes and model from DB
+        def load_classes_and_model():
             try:
-                model.load_weights(ACTIVE_VGG_MODEL.model_file.path)
-                print("✅ Loaded VGG16 weights from:", ACTIVE_VGG_MODEL.model_file.path)
-            except Exception as e:
-                print(f"[ERROR] Failed to load VGG16 weights from DB path: {e}")
-                # Fallback to hardcoded path
-                if os.path.exists(VGG16_PATH):
+                rice_classes = list(RiceInfo.objects.values_list('variety_name', flat=True))
+            except:
+                rice_classes = []
+            try:
+                active_vgg_model = RiceModel.objects.filter(is_active=True, name='VGG16 Model').first()
+            except:
+                active_vgg_model = None
+            try:
+                active_ensemble_model = RiceModel.objects.filter(is_active=True, name='Ensemble Model').first()
+            except:
+                active_ensemble_model = None
+            return rice_classes, active_vgg_model, active_ensemble_model
+
+        RICE_CLASSES, ACTIVE_VGG_MODEL, ACTIVE_ENSEMBLE_MODEL = load_classes_and_model()
+
+        # Load XGBoost meta-model
+        xgb_meta = XGBClassifier()
+        xgb_meta.load_model(META_MODEL_PATH)
+
+        # Build + Load models
+        with strategy.scope():
+            def build_model(num_classes, l2_weight=1e-4, dropout_rate=0.3):
+                base_model = VGG16(include_top=False, input_shape=IMAGE_SIZE + (3,), weights="imagenet")
+                x = base_model.output
+                x = GlobalAveragePooling2D(name="gap")(x)
+                x = Dropout(dropout_rate, name="dropout")(x)
+                x = Dense(256, activation="relu", kernel_regularizer=l2(l2_weight), name="dense_256")(x)
+                x = BatchNormalization(name="bn")(x)
+                outputs = Dense(num_classes, activation="softmax", dtype="float32", name="pred")(x)
+                return keras.Model(inputs=base_model.input, outputs=outputs, name="VGG16_rice62")
+
+            def build_vgg16_feature_extractor():
+                base = VGG16(weights=None, include_top=False, input_shape=(224,224,3))
+                x = GlobalAveragePooling2D()(base.output)
+                model = keras.Model(inputs=base.input, outputs=x)
+                model.load_weights(VGG16_PATH)
+                return model
+
+            def build_mobilenetv2_feature_extractor():
+                base = MobileNetV2(weights=None, include_top=False, input_shape=(224,224,3))
+                x = GlobalAveragePooling2D()(base.output)
+                model = keras.Model(inputs=base.input, outputs=x)
+                model.load_weights(MOBILENET_PATH)
+                return model
+
+            model = build_model(len(RICE_CLASSES))
+            loss = keras.losses.CategoricalCrossentropy(label_smoothing=0.05)
+            model.compile(optimizer="adam", loss=loss, metrics=["accuracy"])
+
+            vgg_extractor = build_vgg16_feature_extractor()
+            mobilenet_extractor = build_mobilenetv2_feature_extractor()
+
+            if ACTIVE_VGG_MODEL and ACTIVE_VGG_MODEL.is_active:
+                if ACTIVE_VGG_MODEL.model_file and os.path.exists(ACTIVE_VGG_MODEL.model_file.path):
                     try:
-                        model.load_weights(VGG16_PATH)
-                        print("✅ Loaded VGG16 weights from fallback path:", VGG16_PATH)
-                    except Exception as e2:
-                        print(f"[ERROR] Failed to load VGG16 weights from fallback: {e2}")
+                        model.load_weights(ACTIVE_VGG_MODEL.model_file.path)
+                        print("✅ Loaded VGG16 weights from:", ACTIVE_VGG_MODEL.model_file.path)
+                    except Exception as e:
+                        print(f"[ERROR] Failed to load VGG16 weights from DB path: {e}")
+                        # Fallback to hardcoded path
+                        if os.path.exists(VGG16_PATH):
+                            try:
+                                model.load_weights(VGG16_PATH)
+                                print("✅ Loaded VGG16 weights from fallback path:", VGG16_PATH)
+                            except Exception as e2:
+                                print(f"[ERROR] Failed to load VGG16 weights from fallback: {e2}")
+                        else:
+                            print(f"[ERROR] Fallback VGG16 weights file not found at {VGG16_PATH}")
                 else:
-                    print(f"[ERROR] Fallback VGG16 weights file not found at {VGG16_PATH}")
-        else:
-            # No DB file, try hardcoded
-            if os.path.exists(VGG16_PATH):
-                try:
-                    model.load_weights(VGG16_PATH)
-                    print("✅ Loaded VGG16 weights from hardcoded path:", VGG16_PATH)
-                except Exception as e:
-                    print(f"[ERROR] Failed to load VGG16 weights from hardcoded: {e}")
+                    # No DB file, try hardcoded
+                    if os.path.exists(VGG16_PATH):
+                        try:
+                            model.load_weights(VGG16_PATH)
+                            print("✅ Loaded VGG16 weights from hardcoded path:", VGG16_PATH)
+                        except Exception as e:
+                            print(f"[ERROR] Failed to load VGG16 weights from hardcoded: {e}")
+                    else:
+                        print(f"[ERROR] No VGG16 weights file found at {VGG16_PATH}")
             else:
-                print(f"[ERROR] No VGG16 weights file found at {VGG16_PATH}")
-    else:
-        print("[INFO] No active VGG16 model")
+                print("[INFO] No active VGG16 model")
 
-    if ACTIVE_ENSEMBLE_MODEL:
-        if ACTIVE_ENSEMBLE_MODEL.vgg_weights_file and os.path.exists(ACTIVE_ENSEMBLE_MODEL.vgg_weights_file.path):
-            try:
-                vgg_extractor.load_weights(ACTIVE_ENSEMBLE_MODEL.vgg_weights_file.path)
-                print("✅ Loaded Ensemble VGG16 weights from:", ACTIVE_ENSEMBLE_MODEL.vgg_weights_file.path)
-            except Exception as e:
-                print(f"[ERROR] Failed to load Ensemble VGG16 weights: {e}")
-        else:
-            print("[ERROR] No active Ensemble VGG16 weights file")
+            if ACTIVE_ENSEMBLE_MODEL:
+                if ACTIVE_ENSEMBLE_MODEL.vgg_weights_file and os.path.exists(ACTIVE_ENSEMBLE_MODEL.vgg_weights_file.path):
+                    try:
+                        vgg_extractor.load_weights(ACTIVE_ENSEMBLE_MODEL.vgg_weights_file.path)
+                        print("✅ Loaded Ensemble VGG16 weights from:", ACTIVE_ENSEMBLE_MODEL.vgg_weights_file.path)
+                    except Exception as e:
+                        print(f"[ERROR] Failed to load Ensemble VGG16 weights: {e}")
+                else:
+                    print("[ERROR] No active Ensemble VGG16 weights file")
 
-        if ACTIVE_ENSEMBLE_MODEL.mobilenet_weights_file and os.path.exists(ACTIVE_ENSEMBLE_MODEL.mobilenet_weights_file.path):
-            try:
-                mobilenet_extractor.load_weights(ACTIVE_ENSEMBLE_MODEL.mobilenet_weights_file.path)
-                print("✅ Loaded Ensemble MobileNetV2 weights from:", ACTIVE_ENSEMBLE_MODEL.mobilenet_weights_file.path)
-            except Exception as e:
-                print(f"[ERROR] Failed to load Ensemble MobileNetV2 weights: {e}")
-        else:
-            print("[ERROR] No active Ensemble MobileNetV2 weights file")
+                if ACTIVE_ENSEMBLE_MODEL.mobilenet_weights_file and os.path.exists(ACTIVE_ENSEMBLE_MODEL.mobilenet_weights_file.path):
+                    try:
+                        mobilenet_extractor.load_weights(ACTIVE_ENSEMBLE_MODEL.mobilenet_weights_file.path)
+                        print("✅ Loaded Ensemble MobileNetV2 weights from:", ACTIVE_ENSEMBLE_MODEL.mobilenet_weights_file.path)
+                    except Exception as e:
+                        print(f"[ERROR] Failed to load Ensemble MobileNetV2 weights: {e}")
+                else:
+                    print("[ERROR] No active Ensemble MobileNetV2 weights file")
 
-        if ACTIVE_ENSEMBLE_MODEL.xgb_model_file and os.path.exists(ACTIVE_ENSEMBLE_MODEL.xgb_model_file.path):
-            try:
-                xgb_meta.load_model(ACTIVE_ENSEMBLE_MODEL.xgb_model_file.path)
-                print("✅ Loaded XGBoost model from:", ACTIVE_ENSEMBLE_MODEL.xgb_model_file.path)
-            except Exception as e:
-                print(f"[ERROR] Failed to load XGBoost model: {e}")
-        else:
-            print("[ERROR] No active XGBoost model file")
-    else:
-        print("[INFO] No active Ensemble model")
+                if ACTIVE_ENSEMBLE_MODEL.xgb_model_file and os.path.exists(ACTIVE_ENSEMBLE_MODEL.xgb_model_file.path):
+                    try:
+                        xgb_meta.load_model(ACTIVE_ENSEMBLE_MODEL.xgb_model_file.path)
+                        print("✅ Loaded XGBoost model from:", ACTIVE_ENSEMBLE_MODEL.xgb_model_file.path)
+                    except Exception as e:
+                        print(f"[ERROR] Failed to load XGBoost model: {e}")
+                else:
+                    print("[ERROR] No active XGBoost model file")
+            else:
+                print("[INFO] No active Ensemble model")
+
+        _models_loaded = True
+        print("✅ Models loaded successfully.")
 
 # Helper function for feature extraction
 def extract_features(img_array, model, preprocess_func):
@@ -170,6 +192,9 @@ def extract_features(img_array, model, preprocess_func):
 @never_cache
 def predict(request):
     warnings.filterwarnings("ignore", category=UserWarning)
+
+    # Load models lazily on first request
+    load_models()
 
     if request.method == "POST":
         try:
