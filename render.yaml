@@ -1,8 +1,13 @@
-envVersion: 3.11.0
+envVersion: 3
+
+databases:
+  - name: rice_prediction_db
 
 services:
   - type: web
     name: RicePredictionTest
+    env: python
+    plan: free
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
@@ -11,16 +16,15 @@ services:
     startCommand: |
       gunicorn rice_prediction.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 300
     envVars:
-      - key: DATABASE_URL
-        value: postgresql://database_n5ff_user:gLhMYElx2nQ9V0NQP3KS3AVb7ESgVSLb@dpg-d3oe3o2li9vc73c2t19g-a/database_n5ff
+      - key: RENDER
+        value: "True"
       - key: DEBUG
         value: "False"
       - key: ALLOWED_HOSTS
         value: "ricepredictiontest.onrender.com"
       - key: CSRF_TRUSTED_ORIGINS
         value: "https://ricepredictiontest.onrender.com"
-    autoDeploy: true
-
-  - type: pserv
-    name: RicePredictionTest
-    runtime: postgres
+      - key: DATABASE_URL
+        fromDatabase:
+          name: rice_prediction_db
+          property: connectionString
