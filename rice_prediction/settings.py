@@ -91,12 +91,29 @@ WSGI_APPLICATION = 'rice_prediction.wsgi.application'
 import dj_database_url
 import os
 
-import dj_database_url
-import os
-
 DATABASES = {
     'default': dj_database_url.config(default='sqlite:///db.sqlite3')
 }
+
+# -----------------------------------------------------------
+# Render-specific configuration
+# -----------------------------------------------------------
+RENDER = os.environ.get('RENDER', False)
+if RENDER:
+    DEBUG = False
+    ALLOWED_HOSTS = ['ricepredictiontest.onrender.com']
+    CSRF_TRUSTED_ORIGINS = ['https://ricepredictiontest.onrender.com']
+    SECURE_SSL_REDIRECT = False  # Let Render handle HTTPS redirection
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=os.environ.get(
+                "DATABASE_URL",
+                "postgresql://rice_prediction_db_user:tS6zH52KU52h0B7Y2KbvkXs6yZSIWo2f@dpg-d3oiri6mcj7s73f0cu40-a/rice_prediction_db"
+            ),
+            conn_max_age=600,
+            ssl_require=True,
+        )
+    }
 
 
 # Password validation
