@@ -21,6 +21,13 @@
                                     <input type="file" class="form-control" id="rice_image" name="rice_image" required>
                                 </div>
                                 <div class="mb-3">
+                                    <label for="model_type" class="form-label">Model Type</label>
+                                    <select class="form-control" id="model_type" name="model_type">
+                                        <option value="vgg">VGG16</option>
+                                        <option value="ensemble">Ensemble (VGG16 + MobileNetV2 + XGBoost)</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
                                     <label for="variety" class="form-label">Rice Variety Name</label>
                                     <input type="text" class="form-control" id="variety" name="variety" readonly>
                                 </div>
@@ -28,7 +35,10 @@
                                     <label for="info" class="form-label">Rice Info</label>
                                     <textarea class="form-control" id="info" name="info" rows="3" readonly></textarea>
                                 </div>
-                                <button type="submit" class="btn btn-success">Submit</button>
+                                <button type="submit" class="btn btn-success" id="submitBtn">
+                                    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true" style="display: none;"></span>
+                                    Submit
+                                </button>
                             </form>
                         </div>
                         <div class="col-md-6">
@@ -47,9 +57,18 @@
 <script>
 document.getElementById('predictionForm').addEventListener('submit', function(e) {
     e.preventDefault();
-    
+
+    const submitBtn = document.getElementById('submitBtn');
+    const spinner = submitBtn.querySelector('.spinner-border');
+    const btnText = submitBtn.querySelector('span:not(.spinner-border)');
+
+    // Show loading animation
+    submitBtn.disabled = true;
+    spinner.style.display = 'inline-block';
+    btnText.textContent = ' Predicting...';
+
     const formData = new FormData(this);
-    
+
     fetch("{% url 'predict' %}", {
         method: 'POST',
         body: formData,
@@ -66,9 +85,18 @@ document.getElementById('predictionForm').addEventListener('submit', function(e)
         const uploadedImage = document.getElementById('uploadedImage');
         uploadedImage.src = "/media/predictions/current.jpg?t=" + new Date().getTime();
         uploadedImage.style.display = 'block';
+
+        // Hide loading animation
+        submitBtn.disabled = false;
+        spinner.style.display = 'none';
+        btnText.textContent = 'Submit';
     })
     .catch(error => {
         console.error('Error:', error);
+        // Hide loading animation on error
+        submitBtn.disabled = false;
+        spinner.style.display = 'none';
+        btnText.textContent = 'Submit';
     });
 });
 </script>

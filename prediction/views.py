@@ -3,9 +3,12 @@ import numpy as np
 from PIL import Image
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras.applications import VGG16
+from tensorflow.keras.applications import VGG16, MobileNetV2
 from tensorflow.keras.layers import GlobalAveragePooling2D, Dropout, Dense, BatchNormalization
 from tensorflow.keras.regularizers import l2
+from tensorflow.keras.applications.vgg16 import preprocess_input as vgg_preprocess
+from tensorflow.keras.applications.mobilenet_v2 import preprocess_input as mobilenet_preprocess
+from xgboost import XGBClassifier
 from django.shortcuts import render
 from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -32,17 +35,36 @@ print("Replicas:", strategy.num_replicas_in_sync)
 # Config
 # -----------------------------
 IMAGE_SIZE = (224, 224)
+VGG16_PATH = os.path.join(settings.BASE_DIR, 'models', 'best_VGG16_stage2.weights.h5')
+MOBILENET_PATH = os.path.join(settings.BASE_DIR, 'models', 'MobileNetV2_rice62_final.weights.h5')
+META_MODEL_PATH = os.path.join(settings.BASE_DIR, 'models', 'xgb_meta_model.json')
 
 # Load classes and model from DB
 def load_classes_and_model():
-    rice_classes = list(RiceInfo.objects.values_list('variety_name', flat=True))
-    active_model = RiceModel.objects.filter(is_active=True).first()
-    return rice_classes, active_model
+    try:
+        rice_classes = list(RiceInfo.objects.values_list('variety_name', flat=True))
+    except:
+        rice_classes = []
+    try:
+        active_vgg_model = RiceModel.objects.filter(is_active=True, model_type='vgg').first()
+    except:
+        active_vgg_model = None
+    try:
+        active_ensemble_model = RiceModel.objects.filter(is_active=True, model_type='ensemble').first()
+    except:
+        active_ensemble_model = None
+    return rice_classes, active_vgg_model, active_ensemble_model
 
-RICE_CLASSES, ACTIVE_MODEL = load_classes_and_model()
+RICE_CLASSES, ACTIVE_VGG_MODEL, ACTIVE_ENSEMBLE_MODEL = load_classes_and_model()
 
 # -----------------------------
-# Build + Load model
+# Load XGBoost meta-model
+# -----------------------------
+xgb_meta = XGBClassifier()
+xgb_meta.load_model(META_MODEL_PATH)
+
+# -----------------------------
+# Build + Load models
 # -----------------------------
 with strategy.scope():
     def build_model(num_classes, l2_weight=1e-4, dropout_rate=0.3):
@@ -55,18 +77,71 @@ with strategy.scope():
         outputs = Dense(num_classes, activation="softmax", dtype="float32", name="pred")(x)
         return keras.Model(inputs=base_model.input, outputs=outputs, name="VGG16_rice62")
 
+    def build_vgg16_feature_extractor():
+        base = VGG16(weights=None, include_top=False, input_shape=(224,224,3))
+        x = GlobalAveragePooling2D()(base.output)
+        model = keras.Model(inputs=base.input, outputs=x)
+        model.load_weights(VGG16_PATH)
+        return model
+
+    def build_mobilenetv2_feature_extractor():
+        base = MobileNetV2(weights=None, include_top=False, input_shape=(224,224,3))
+        x = GlobalAveragePooling2D()(base.output)
+        model = keras.Model(inputs=base.input, outputs=x)
+        model.load_weights(MOBILENET_PATH)
+        return model
+
     model = build_model(len(RICE_CLASSES))
     loss = keras.losses.CategoricalCrossentropy(label_smoothing=0.05)
     model.compile(optimizer="adam", loss=loss, metrics=["accuracy"])
 
-    if ACTIVE_MODEL and os.path.exists(ACTIVE_MODEL.model_file.path):
+    vgg_extractor = build_vgg16_feature_extractor()
+    mobilenet_extractor = build_mobilenetv2_feature_extractor()
+
+    if ACTIVE_VGG_MODEL and ACTIVE_VGG_MODEL.model_file and os.path.exists(ACTIVE_VGG_MODEL.model_file.path):
         try:
-            model.load_weights(ACTIVE_MODEL.model_file.path)
-            print("✅ Loaded weights from:", ACTIVE_MODEL.model_file.path)
+            model.load_weights(ACTIVE_VGG_MODEL.model_file.path)
+            print("✅ Loaded VGG16 weights from:", ACTIVE_VGG_MODEL.model_file.path)
         except Exception as e:
-            print(f"[ERROR] Failed to load weights: {e}")
+            print(f"[ERROR] Failed to load VGG16 weights: {e}")
     else:
-        print("[ERROR] No active model or file not found")
+        print("[ERROR] No active VGG16 model or file not found")
+
+    if ACTIVE_ENSEMBLE_MODEL:
+        if ACTIVE_ENSEMBLE_MODEL.vgg_weights_file and os.path.exists(ACTIVE_ENSEMBLE_MODEL.vgg_weights_file.path):
+            try:
+                vgg_extractor.load_weights(ACTIVE_ENSEMBLE_MODEL.vgg_weights_file.path)
+                print("✅ Loaded Ensemble VGG16 weights from:", ACTIVE_ENSEMBLE_MODEL.vgg_weights_file.path)
+            except Exception as e:
+                print(f"[ERROR] Failed to load Ensemble VGG16 weights: {e}")
+        else:
+            print("[ERROR] No active Ensemble VGG16 weights file")
+
+        if ACTIVE_ENSEMBLE_MODEL.mobilenet_weights_file and os.path.exists(ACTIVE_ENSEMBLE_MODEL.mobilenet_weights_file.path):
+            try:
+                mobilenet_extractor.load_weights(ACTIVE_ENSEMBLE_MODEL.mobilenet_weights_file.path)
+                print("✅ Loaded Ensemble MobileNetV2 weights from:", ACTIVE_ENSEMBLE_MODEL.mobilenet_weights_file.path)
+            except Exception as e:
+                print(f"[ERROR] Failed to load Ensemble MobileNetV2 weights: {e}")
+        else:
+            print("[ERROR] No active Ensemble MobileNetV2 weights file")
+
+        if ACTIVE_ENSEMBLE_MODEL.xgb_model_file and os.path.exists(ACTIVE_ENSEMBLE_MODEL.xgb_model_file.path):
+            try:
+                xgb_meta.load_model(ACTIVE_ENSEMBLE_MODEL.xgb_model_file.path)
+                print("✅ Loaded XGBoost model from:", ACTIVE_ENSEMBLE_MODEL.xgb_model_file.path)
+            except Exception as e:
+                print(f"[ERROR] Failed to load XGBoost model: {e}")
+        else:
+            print("[ERROR] No active XGBoost model file")
+    else:
+        print("[INFO] No active Ensemble model")
+
+# Helper function for feature extraction
+def extract_features(img_array, model, preprocess_func):
+    img_array = preprocess_func(img_array)
+    feat = model.predict(img_array, verbose=0)
+    return feat.flatten()
 
 # -----------------------------
 # Prediction View
@@ -91,12 +166,28 @@ def predict(request):
             image.save(path)
 
             image = image.resize(IMAGE_SIZE)
-            image_array = np.expand_dims(np.array(image, dtype=np.float32) / 255.0, axis=0)
+            image_array = np.expand_dims(np.array(image, dtype=np.float32), axis=0)
 
-            preds = model.predict(image_array, verbose=0)
-            idx = int(np.argmax(preds[0]))
-            predicted_class = RICE_CLASSES[idx]
-            confidence = float(np.max(preds[0]) * 100)
+            model_type = request.POST.get('model_type', 'vgg')
+
+            if model_type == 'vgg':
+                # Original VGG16 prediction
+                image_array_vgg = image_array / 255.0
+                preds = model.predict(image_array_vgg, verbose=0)
+                idx = int(np.argmax(preds[0]))
+                predicted_class = RICE_CLASSES[idx]
+                confidence = float(np.max(preds[0]) * 100)
+            elif model_type == 'ensemble':
+                # Ensemble prediction
+                feat_vgg = extract_features(image_array.copy(), vgg_extractor, vgg_preprocess)
+                feat_mobile = extract_features(image_array.copy(), mobilenet_extractor, mobilenet_preprocess)
+                stacked_feat = np.hstack([feat_vgg, feat_mobile]).reshape(1, -1)
+                pred_index = xgb_meta.predict(stacked_feat)[0]
+                pred_prob = xgb_meta.predict_proba(stacked_feat).max()
+                predicted_class = RICE_CLASSES[pred_index]
+                confidence = pred_prob * 100
+            else:
+                return JsonResponse({"error": "Invalid model_type. Use 'vgg' or 'ensemble'"}, status=400)
 
             rice_info_obj = RiceInfo.objects.filter(variety_name=predicted_class).first()
             rice_info = rice_info_obj.info if rice_info_obj else "No info available."
@@ -115,6 +206,7 @@ def predict(request):
                 "predicted_variety": predicted_class,
                 "confidence": confidence,
                 "rice_info": rice_info,
+                "model_type": model_type,
                 "message": f"Predicted Rice Variety: {predicted_class} ({confidence:.2f}% confidence)"
             })
 
