@@ -17,6 +17,8 @@ services:
         value: "False"
       - key: ALLOWED_HOSTS
         value: "ricepredictiontest.onrender.com"
+      - key: CSRF_TRUSTED_ORIGINS
+        value: "https://ricepredictiontest.onrender.com"
     autoDeploy: true
 
   - type: pserv
