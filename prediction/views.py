@@ -147,32 +147,33 @@ def load_models():
                 print("[INFO] No active VGG16 model")
 
             if ACTIVE_ENSEMBLE_MODEL:
-                if ACTIVE_ENSEMBLE_MODEL.vgg_weights_file and os.path.exists(ACTIVE_ENSEMBLE_MODEL.vgg_weights_file.path):
+                # Load ensemble models from hardcoded paths
+                if os.path.exists(VGG16_PATH):
                     try:
-                        vgg_extractor.load_weights(ACTIVE_ENSEMBLE_MODEL.vgg_weights_file.path)
-                        print("✅ Loaded Ensemble VGG16 weights from:", ACTIVE_ENSEMBLE_MODEL.vgg_weights_file.path)
+                        vgg_extractor.load_weights(VGG16_PATH)
+                        print("✅ Loaded Ensemble VGG16 weights from:", VGG16_PATH)
                     except Exception as e:
                         print(f"[ERROR] Failed to load Ensemble VGG16 weights: {e}")
                 else:
-                    print("[ERROR] No active Ensemble VGG16 weights file")
+                    print(f"[ERROR] Ensemble VGG16 weights file not found at {VGG16_PATH}")
 
-                if ACTIVE_ENSEMBLE_MODEL.mobilenet_weights_file and os.path.exists(ACTIVE_ENSEMBLE_MODEL.mobilenet_weights_file.path):
+                if os.path.exists(MOBILENET_PATH):
                     try:
-                        mobilenet_extractor.load_weights(ACTIVE_ENSEMBLE_MODEL.mobilenet_weights_file.path)
-                        print("✅ Loaded Ensemble MobileNetV2 weights from:", ACTIVE_ENSEMBLE_MODEL.mobilenet_weights_file.path)
+                        mobilenet_extractor.load_weights(MOBILENET_PATH)
+                        print("✅ Loaded Ensemble MobileNetV2 weights from:", MOBILENET_PATH)
                     except Exception as e:
                         print(f"[ERROR] Failed to load Ensemble MobileNetV2 weights: {e}")
                 else:
-                    print("[ERROR] No active Ensemble MobileNetV2 weights file")
+                    print(f"[ERROR] Ensemble MobileNetV2 weights file not found at {MOBILENET_PATH}")
 
-                if ACTIVE_ENSEMBLE_MODEL.xgb_model_file and os.path.exists(ACTIVE_ENSEMBLE_MODEL.xgb_model_file.path):
+                if os.path.exists(META_MODEL_PATH):
                     try:
-                        xgb_meta.load_model(ACTIVE_ENSEMBLE_MODEL.xgb_model_file.path)
-                        print("✅ Loaded XGBoost model from:", ACTIVE_ENSEMBLE_MODEL.xgb_model_file.path)
+                        xgb_meta.load_model(META_MODEL_PATH)
+                        print("✅ Loaded XGBoost model from:", META_MODEL_PATH)
                     except Exception as e:
                         print(f"[ERROR] Failed to load XGBoost model: {e}")
                 else:
-                    print("[ERROR] No active XGBoost model file")
+                    print(f"[ERROR] XGBoost model file not found at {META_MODEL_PATH}")
             else:
                 print("[INFO] No active Ensemble model")
 

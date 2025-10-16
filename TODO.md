@@ -1,4 +1,5 @@
-- [x] Set DEBUG=False for RENDER in settings.py
-- [x] Implement lazy loading for TensorFlow models in views.py
-- [x] Adjust gunicorn timeout in Procfile if needed
-- [x] Test locally and redeploy on Render
+- [ ] Remove ensemble FileFields from RiceModel in prediction/models.py
+- [ ] Run makemigrations to create migration for model changes
+- [ ] Run migrate to apply migration
+- [ ] Modify prediction/views.py to always load ensemble models from hardcoded paths, remove DB checks
+- [ ] Test model loading

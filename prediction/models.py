@@ -49,27 +49,7 @@ class RiceModel(models.Model):
         help_text="Path to the .tflite model file (for VGG16)"
     )
 
-    # For Ensemble
-    vgg_weights_file = models.FileField(
-        upload_to='models/',
-        null=True,
-        blank=True,
-        help_text="Path to VGG16 weights file (for Ensemble)"
-    )
 
-    mobilenet_weights_file = models.FileField(
-        upload_to='models/',
-        null=True,
-        blank=True,
-        help_text="Path to MobileNetV2 weights file (for Ensemble)"
-    )
-
-    xgb_model_file = models.FileField(
-        upload_to='models/',
-        null=True,
-        blank=True,
-        help_text="Path to XGBoost model file (for Ensemble)"
-    )
 
     is_active = models.BooleanField(
         default=False,
