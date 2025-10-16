@@ -6,8 +6,10 @@ services:
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
+      python manage.py collectstatic --noinput
+      python manage.py migrate
     startCommand: |
-      gunicorn rice_prediction.wsgi:application --bind 0.0.0.0:$PORT
+      gunicorn rice_prediction.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 300
     envVars:
       - key: DATABASE_URL
         value: postgresql://r_dot_db_user:XxHqnxouFEGHMspbwBGzi0BpPizIdm9x@dpg-d3def6ripnbc73c9iflg-a/r_dot_db

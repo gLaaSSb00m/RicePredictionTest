@@ -1,4 +1,4 @@
 - [x] Update TensorFlow to version 2.17.0 in requirements.txt
 - [x] Update tensorboard and tensorboard-data-server to compatible versions
-- [ ] Commit the changes to the repository
+- [x] Commit the changes to the repository
 - [ ] Redeploy the application on Render
