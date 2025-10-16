@@ -1,5 +1,5 @@
 env: python
-envVersion: 3.11.1  # 👈 must be at the top level, not inside 'services'
+envVersion: 3.11.0  # 👈 must be at the top level, not inside 'services'
 
 services:
   - type: web
