@@ -1,30 +1,23 @@
-envVersion: 3
-
-databases:
-  - name: rice_prediction_db
+env: python
+envVersion: 3.11.1  # 👈 must be at the top level, not inside 'services'
 
 services:
   - type: web
-    name: RicePredictionTest
-    env: python
-    plan: free
+    name: rice-prediction-app
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
-      python manage.py collectstatic --noinput
-      python manage.py migrate
     startCommand: |
-      gunicorn rice_prediction.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 300
+      gunicorn rice_prediction.wsgi:application --bind 0.0.0.0:$PORT
     envVars:
-      - key: RENDER
-        value: "True"
+      - key: DATABASE_URL
+        value: postgresql://database_n5ff_user:gLhMYElx2nQ9V0NQP3KS3AVb7ESgVSLb@dpg-d3oe3o2li9vc73c2t19g-a/database_n5ff
       - key: DEBUG
         value: "False"
       - key: ALLOWED_HOSTS
-        value: "ricepredictiontest.onrender.com"
-      - key: CSRF_TRUSTED_ORIGINS
-        value: "https://ricepredictiontest.onrender.com"
-      - key: DATABASE_URL
-        fromDatabase:
-          name: rice_prediction_db
-          property: connectionString
+        value: "rice-prediction-web.onrender.com"
+    autoDeploy: true
+
+  - type: pserv
+    name: rice-prediction-db
+    runtime: postgres
