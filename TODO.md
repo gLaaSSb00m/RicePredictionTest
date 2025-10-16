@@ -1,5 +1,4 @@
-# TODO for Admin Panel Update
-
-- [x] Modify prediction/admin.py to register RiceModel with custom RiceModelAdmin class, including get_fieldsets for different model_types.
-- [x] Remove registrations for VGGModel and EnsembleModel.
-- [x] Remove unused imports for VGGModel and EnsembleModel.
+- [x] Update TensorFlow to version 2.17.0 in requirements.txt
+- [x] Update tensorboard and tensorboard-data-server to compatible versions
+- [ ] Commit the changes to the repository
+- [ ] Redeploy the application on Render
