@@ -1,9 +1,7 @@
-env: python
-envVersion: 3.11.0  # 👈 must be at the top level, not inside 'services'
-
 services:
   - type: web
     name: rice-prediction-app
+    envVersion: 3.11.0
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
