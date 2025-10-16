@@ -138,7 +138,7 @@ CORS_ALLOW_CREDENTIALS = True
 # -----------------------------------------------------------
 RENDER = os.environ.get('RENDER', False)
 if RENDER:
-    DEBUG = False
+    DEBUG = True
     ALLOWED_HOSTS = ['ricepredictiontest.onrender.com']
     CSRF_TRUSTED_ORIGINS = ['https://ricepredictiontest.onrender.com']
     SECURE_SSL_REDIRECT = False  # Let Render handle HTTPS redirection
