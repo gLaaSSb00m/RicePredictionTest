@@ -11,11 +11,11 @@ services:
       gunicorn rice_prediction.wsgi:application --bind 0.0.0.0:$PORT
     envVars:
       - key: DATABASE_URL
-        value: postgresql://database_n5ff_user:gLhMYElx2nQ9V0NQP3KS3AVb7ESgVSLb@dpg-d3oe3o2li9vc73c2t19g-a/database_n5ff
+        value: postgresql://rice_prediction_db_user:tS6zH52KU52h0B7Y2KbvkXs6yZSIWo2f@dpg-d3oiri6mcj7s73f0cu40-a/rice_prediction_db
       - key: DEBUG
         value: "False"
       - key: ALLOWED_HOSTS
-        value: "rice-prediction-web.onrender.com"
+        value: "ricepredictiontest.onrender.com"
     autoDeploy: true
 
   - type: pserv
