@@ -2,7 +2,7 @@ envVersion: 3.11.0
 
 services:
   - type: web
-    name: rice-prediction-app
+    name: RicePredictionTest
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
@@ -12,13 +12,13 @@ services:
       gunicorn rice_prediction.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 300
     envVars:
       - key: DATABASE_URL
-        value: postgresql://r_dot_db_user:XxHqnxouFEGHMspbwBGzi0BpPizIdm9x@dpg-d3def6ripnbc73c9iflg-a/r_dot_db
+        value: postgresql://database_n5ff_user:gLhMYElx2nQ9V0NQP3KS3AVb7ESgVSLb@dpg-d3oe3o2li9vc73c2t19g-a/database_n5ff
       - key: DEBUG
         value: "False"
       - key: ALLOWED_HOSTS
-        value: "rice-prediction-web.onrender.com"
+        value: "ricepredictiontest.onrender.com"
     autoDeploy: true
 
   - type: pserv
-    name: rice-prediction-db
+    name: RicePredictionTest
     runtime: postgres

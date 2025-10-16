@@ -33,7 +33,7 @@ DEBUG = True
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost,0.0.0.0,rice-prediction-web.onrender.com,testserver").split(",")
+ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost,0.0.0.0,ricepredictiontest.onrender.com,testserver").split(",")
 
 
 
