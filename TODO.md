@@ -1,4 +1,4 @@
-- [x] Update TensorFlow to version 2.17.0 in requirements.txt
-- [x] Update tensorboard and tensorboard-data-server to compatible versions
-- [x] Commit the changes to the repository
-- [x] Redeploy the application on Render
+- [x] Set DEBUG=False for RENDER in settings.py
+- [ ] Implement lazy loading for TensorFlow models in views.py
+- [ ] Adjust gunicorn timeout in Procfile if needed
+- [ ] Test locally and redeploy on Render
